@@ -10,7 +10,6 @@
         --fg: #111;
         --muted: #666;
         --border: #e3e3e3;
-        --brand: #111;
       }
       * {
         box-sizing: border-box;
@@ -73,11 +72,10 @@
 
       .stage {
         position: relative;
-        height: calc(100vh - 56px); /* toolbar height approx */
+        height: calc(100vh - 56px);
         overflow: hidden;
       }
       .grain {
-        /* soft vignette */
         position: absolute;
         inset: 0;
         pointer-events: none;
@@ -127,20 +125,12 @@
         max-height: 80vh;
         user-select: none;
         -webkit-user-drag: none;
+        /* 투명 PNG가 그대로 보이도록 배경 제거 */
+        /* background: none; */
+        /* 그림자는 유지 */
         box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05), 0 8px 26px rgba(0, 0, 0, 0.06);
-        background: #fff;
       }
-      .veil {
-        position: absolute;
-        inset: 0;
-        mix-blend-mode: multiply;
-        pointer-events: none;
-        border-radius: 2px;
-        background: linear-gradient(
-          rgba(255, 255, 255, 0.45),
-          rgba(255, 255, 255, 0.5)
-        );
-      }
+      /* 종이 쌓인 느낌을 위한 아래쪽 그림자 */
       .edge-shadow {
         position: absolute;
         left: -8px;
@@ -306,10 +296,14 @@
       // ---------------------------
       const stackRoot = document.getElementById('stackRoot');
       const counter = document.getElementById('counter');
-      const prevBtn = document.getElementById('prevBtn');
-      const nextBtn = document.getElementById('nextBtn');
-      const prevBtn2 = document.getElementById('prevBtn2');
-      const nextBtn2 = document.getElementById('nextBtn2');
+      thePrevBtns = [
+        document.getElementById('prevBtn'),
+        document.getElementById('prevBtn2'),
+      ];
+      theNextBtns = [
+        document.getElementById('nextBtn'),
+        document.getElementById('nextBtn2'),
+      ];
       const fitHeightToggle = document.getElementById('fitHeightToggle');
       const fileInput = document.getElementById('fileInput');
       const stage = document.getElementById('stage');
@@ -318,30 +312,22 @@
       // ---------------------------
       // Helpers
       // ---------------------------
-      function clamp(val, min, max) {
-        return Math.min(max, Math.max(min, val));
-      }
-
       function preload(src) {
         const img = new Image();
         img.src = src;
       }
-
       function updateCounter() {
         counter.textContent = `${pages.length ? index + 1 : 0} / ${
           pages.length
         }`;
       }
-
       function updateButtons() {
         const canPrev = index > 0;
         const canNext = index < pages.length - 1;
-        [prevBtn, prevBtn2].forEach((b) => (b.disabled = !canPrev));
-        [nextBtn, nextBtn2].forEach((b) => (b.disabled = !canNext));
+        thePrevBtns.forEach((b) => (b.disabled = !canPrev));
+        theNextBtns.forEach((b) => (b.disabled = !canNext));
       }
-
       function setPagesFromFiles(fileList) {
-        // cleanup old objectURLs
         objectURLs.forEach((url) => URL.revokeObjectURL(url));
         objectURLs = [];
         pages = Array.from(fileList)
@@ -354,7 +340,6 @@
         index = 0;
         render();
       }
-
       function attachDragAndDrop() {
         stage.addEventListener('dragover', (e) => {
           e.preventDefault();
@@ -384,17 +369,17 @@
         updateCounter();
         updateButtons();
         dropHint.style.display = pages.length ? 'none' : 'grid';
-
         if (!pages.length) return;
 
-        // show current and everything behind (index..end)
         for (let i = index; i < pages.length; i++) {
           const depth = i - index; // 0 = front
           const z = 1000 - i;
-          const opacity = depth === 0 ? 1 : Math.max(0.15, 0.6 - depth * 0.12);
-          const blurPx = Math.min(6, depth * 1.4);
+
+          // 거리감: 뒤로 갈수록 블러/저채도/미세 오프셋/약간 투명
+          const opacity = depth === 0 ? 1 : Math.max(0.18, 0.6 - depth * 0.12);
+          const blurPx = Math.min(5, depth * 2); // 블러 조금 강화
           const grayPct = Math.min(60, depth * 10);
-          const yOffset = depth * 2; // slight sag
+          const yOffset = depth * 2;
           const xJitter = depth * 1;
 
           const layer = document.createElement('div');
@@ -406,6 +391,7 @@
           img.className = 'page';
           img.alt = `page-${i + 1}`;
           img.src = pages[i];
+
           // fit mode sizing
           if (fitHeight) {
             img.style.maxHeight = '80vh';
@@ -414,16 +400,16 @@
             img.style.maxWidth = '80vw';
             img.style.maxHeight = 'unset';
           }
+
+          // 뒤 레이어 블러/그레이/투명도 적용
           img.style.filter = `blur(${blurPx}px) grayscale(${grayPct}%)`;
           img.style.opacity = opacity;
 
-          const veil = document.createElement('div');
-          veil.className = 'veil';
+          // 종이 쌓인 느낌의 하단 그림자 (모든 레이어 적용)
           const edge = document.createElement('div');
           edge.className = 'edge-shadow';
 
           layer.appendChild(img);
-          if (depth > 0) layer.appendChild(veil);
           layer.appendChild(edge);
           stackRoot.appendChild(layer);
         }
@@ -436,26 +422,27 @@
       // ---------------------------
       // Events
       // ---------------------------
-      prevBtn.addEventListener('click', () => {
-        if (index > 0) {
-          index--;
-          render();
-        }
-      });
-      nextBtn.addEventListener('click', () => {
-        if (index < pages.length - 1) {
-          index++;
-          render();
-        }
-      });
-      prevBtn2.addEventListener('click', () => prevBtn.click());
-      nextBtn2.addEventListener('click', () => nextBtn.click());
+      thePrevBtns.forEach((btn) =>
+        btn.addEventListener('click', () => {
+          if (index > 0) {
+            index--;
+            render();
+          }
+        })
+      );
+      theNextBtns.forEach((btn) =>
+        btn.addEventListener('click', () => {
+          if (index < pages.length - 1) {
+            index++;
+            render();
+          }
+        })
+      );
 
       fitHeightToggle.addEventListener('change', (e) => {
         fitHeight = !!e.target.checked;
         render();
       });
-
       fileInput.addEventListener('change', (e) => {
         const files = e.target.files;
         if (!files || !files.length) return;
@@ -466,11 +453,11 @@
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName))
           return;
         if (e.key === 'ArrowRight' || e.key === ' ') {
-          nextBtn.click();
+          theNextBtns[0].click();
           e.preventDefault();
         }
         if (e.key === 'ArrowLeft') {
-          prevBtn.click();
+          thePrevBtns[0].click();
           e.preventDefault();
         }
         if (e.key.toLowerCase() === 'f') {
