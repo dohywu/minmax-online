@@ -31,6 +31,31 @@
         color: var(--fg);
         background: var(--bg);
       }
+      /* 스플래시 화면 */
+      #splash {
+        position: fixed;
+        inset: 0;
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 3000;
+        opacity: 1; /* 기본 불투명 */
+        transition: opacity 1s ease; /* 1초 동안 서서히 사라짐 */
+      }
+
+      #splash img {
+        max-width: 200px;
+        margin-bottom: 1rem;
+      }
+      #splash h1 {
+        font-size: 1.5rem;
+        color: var(--fg);
+        font-weight: 500;
+      }
+      /* 본 컨텐츠 */
+
       button {
         appearance: none;
         border: 1px solid var(--border);
@@ -171,6 +196,16 @@
     </style>
   </head>
   <body>
+    <!-- 스플래시 화면 -->
+    <div id="splash">
+      <img
+        src="https://dohywu.github.io/minmax-online/src/image/1.png"
+        alt="loading image"
+      />
+      <h1>Loading...</h1>
+    </div>
+
+    <!-- 본 컨텐츠 -->
     <header class="toolbar" role="toolbar" aria-label="Controls">
       <span id="counter" class="counter">0 / 0</span>
       <div class="divider" aria-hidden="true"></div>
@@ -198,6 +233,18 @@
     </main>
 
     <script>
+      // 스플래시 -> 메인 전환
+      // 스플래시 → 메인 전환
+      setTimeout(() => {
+        const splash = document.getElementById('splash');
+        splash.style.opacity = '0'; // 먼저 서서히 투명하게
+        setTimeout(() => {
+          splash.style.display = 'none'; // 애니메이션 끝난 후 완전히 제거
+          document.querySelector('header').style.display = 'flex';
+          document.querySelector('main').style.display = 'block';
+        }, 1000); // transition 시간(1s)과 맞춤
+      }, 5000); // 5초 후 실행
+
       // ---------------------------
       // State
       // ---------------------------
