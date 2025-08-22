@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tracing Stack Image Reader</title>
+    <style>
+      :root {
+        --bg: #f5f5f5;
+        --fg: #111;
+        --muted: #666;
+        --border: #e3e3e3;
+        --brand: #111;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Noto Sans, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+        color: var(--fg);
+        background: var(--bg);
+      }
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: #fff;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.75rem;
+        cursor: pointer;
+        font-size: 0.9rem;
+        line-height: 1;
+        box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.06);
+      }
+      button:hover {
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+      }
+      button:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+      .toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 2000;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 0.9rem;
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: saturate(1.2) blur(6px);
+        border-bottom: 1px solid var(--border);
+      }
+      .divider {
+        width: 1px;
+        height: 20px;
+        background: #ddd;
+        margin: 0 0.25rem;
+      }
+      .grow {
+        flex: 1;
+      }
+      .counter {
+        font-variant-numeric: tabular-nums;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+
+      .stage {
+        position: relative;
+        height: calc(100vh - 56px); /* toolbar height approx */
+        overflow: hidden;
+      }
+      .grain {
+        /* soft vignette */
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(0, 0, 0, 0) 60%,
+          rgba(0, 0, 0, 0.04)
+        );
+      }
+      .dropzone-hint {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        font-size: 0.95rem;
+      }
+      .stage.dragover .dropzone-hint {
+        opacity: 1;
+      }
+
+      .stack-root {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0 24px;
+      }
+      .layer {
+        position: absolute;
+        left: 24px;
+        top: 50%;
+        transform: translateY(-50%);
+        will-change: transform, opacity, filter;
+        transition: transform 0.35s cubic-bezier(0.2, 0.6, 0.18, 1),
+          opacity 0.35s ease, filter 0.35s ease;
+      }
+      .page {
+        display: block;
+        object-fit: contain;
+        object-position: left center;
+        max-width: 80vw;
+        max-height: 80vh;
+        user-select: none;
+        -webkit-user-drag: none;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05), 0 8px 26px rgba(0, 0, 0, 0.06);
+        background: #fff;
+      }
+      .veil {
+        position: absolute;
+        inset: 0;
+        mix-blend-mode: multiply;
+        pointer-events: none;
+        border-radius: 2px;
+        background: linear-gradient(
+          rgba(255, 255, 255, 0.45),
+          rgba(255, 255, 255, 0.5)
+        );
+      }
+      .edge-shadow {
+        position: absolute;
+        left: -8px;
+        right: 24px;
+        bottom: -6px;
+        height: 14px;
+        filter: blur(6px);
+        background: linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0.08),
+          transparent
+        );
+        pointer-events: none;
+      }
+
+      .floating-controls {
+        position: absolute;
+        left: 16px;
+        bottom: 16px;
+        display: flex;
+        gap: 8px;
+      }
+      .hint {
+        position: absolute;
+        right: 16px;
+        bottom: 16px;
+        font-size: 0.8rem;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.75);
+        backdrop-filter: blur(6px);
+        border: 1px solid var(--border);
+        padding: 4px 8px;
+        border-radius: 8px;
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.9rem;
+      }
+      input[type='checkbox'] {
+        width: 16px;
+        height: 16px;
+      }
+
+      .kbd {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #fff;
+        border: 1px solid var(--border);
+        padding: 2px 6px;
+        border-radius: 6px;
+        box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          max-width: 92vw;
+          max-height: 70vh;
+        }
+        .layer {
+          left: 16px;
+        }
+        .stack-root {
+          padding: 0 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="toolbar" role="toolbar" aria-label="Controls">
+      <span id="counter" class="counter">0 / 0</span>
+      <div class="divider" aria-hidden="true"></div>
+      <button id="prevBtn" type="button" aria-label="Previous (←)">Prev</button>
+      <button id="nextBtn" type="button" aria-label="Next (→/Space)">
+        Next
+      </button>
+      <div class="divider" aria-hidden="true"></div>
+      <label class="toggle" title="세로 맞춤(F)">
+        <input id="fitHeightToggle" type="checkbox" checked />
+        Fit to height
+      </label>
+      <div class="grow"></div>
+      <label class="toggle" for="fileInput">
+        <input
+          id="fileInput"
+          type="file"
+          accept="image/*"
+          multiple
+          style="display: none"
+        />
+        <button
+          type="button"
+          onclick="document.getElementById('fileInput').click()"
+        >
+          이미지 업로드
+        </button>
+      </label>
+    </header>
+
+    <main id="stage" class="stage" aria-live="polite">
+      <div class="grain" aria-hidden="true"></div>
+      <div class="dropzone-hint" id="dropHint">
+        이미지를 여기로 드래그 앤 드롭<br />(다중 선택 가능)
+      </div>
+      <div class="stack-root" id="stackRoot"></div>
+
+      <div class="floating-controls">
+        <button id="prevBtn2" type="button">← Prev</button>
+        <button id="nextBtn2" type="button">Next →</button>
+      </div>
+      <div class="hint">
+        ←/→ 또는 Space • <span class="kbd">F</span> = 맞춤 전환
+      </div>
+    </main>
+
+    <script>
+      // ---------------------------
+      // State
+      // ---------------------------
+      const demo = [
+        'https://images.unsplash.com/photo-1529336953121-ad5a0d43d0d2?q=80&w=1600&auto=format&fit=crop',
+        'https://images.unsplash.com/photo-1526318472351-c75fcf070305?q=80&w=1600&auto=format&fit=crop',
+        'https://images.unsplash.com/photo-1469474968028-56623f02e42e?q=80&w=1600&auto=format&fit=crop',
+        'https://images.unsplash.com/photo-1520671459670-44e39f3a5d43?q=80&w=1600&auto=format&fit=crop',
+      ];
+
+      let pages = [...demo];
+      let index = 0; // frontmost
+      let fitHeight = true; // fit mode
+      let objectURLs = []; // for cleanup
+
+      // ---------------------------
+      // Elements
+      // ---------------------------
+      const stackRoot = document.getElementById('stackRoot');
+      const counter = document.getElementById('counter');
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+      const prevBtn2 = document.getElementById('prevBtn2');
+      const nextBtn2 = document.getElementById('nextBtn2');
+      const fitHeightToggle = document.getElementById('fitHeightToggle');
+      const fileInput = document.getElementById('fileInput');
+      const stage = document.getElementById('stage');
+      const dropHint = document.getElementById('dropHint');
+
+      // ---------------------------
+      // Helpers
+      // ---------------------------
+      function clamp(val, min, max) {
+        return Math.min(max, Math.max(min, val));
+      }
+
+      function preload(src) {
+        const img = new Image();
+        img.src = src;
+      }
+
+      function updateCounter() {
+        counter.textContent = `${pages.length ? index + 1 : 0} / ${
+          pages.length
+        }`;
+      }
+
+      function updateButtons() {
+        const canPrev = index > 0;
+        const canNext = index < pages.length - 1;
+        [prevBtn, prevBtn2].forEach((b) => (b.disabled = !canPrev));
+        [nextBtn, nextBtn2].forEach((b) => (b.disabled = !canNext));
+      }
+
+      function setPagesFromFiles(fileList) {
+        // cleanup old objectURLs
+        objectURLs.forEach((url) => URL.revokeObjectURL(url));
+        objectURLs = [];
+        pages = Array.from(fileList)
+          .filter((f) => f.type.startsWith('image/'))
+          .map((f) => {
+            const url = URL.createObjectURL(f);
+            objectURLs.push(url);
+            return url;
+          });
+        index = 0;
+        render();
+      }
+
+      function attachDragAndDrop() {
+        stage.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          stage.classList.add('dragover');
+        });
+        stage.addEventListener('dragleave', () =>
+          stage.classList.remove('dragover')
+        );
+        stage.addEventListener('drop', (e) => {
+          e.preventDefault();
+          stage.classList.remove('dragover');
+          if (
+            e.dataTransfer &&
+            e.dataTransfer.files &&
+            e.dataTransfer.files.length
+          ) {
+            setPagesFromFiles(e.dataTransfer.files);
+          }
+        });
+      }
+
+      // ---------------------------
+      // Rendering
+      // ---------------------------
+      function render() {
+        stackRoot.innerHTML = '';
+        updateCounter();
+        updateButtons();
+        dropHint.style.display = pages.length ? 'none' : 'grid';
+
+        if (!pages.length) return;
+
+        // show current and everything behind (index..end)
+        for (let i = index; i < pages.length; i++) {
+          const depth = i - index; // 0 = front
+          const z = 1000 - i;
+          const opacity = depth === 0 ? 1 : Math.max(0.15, 0.6 - depth * 0.12);
+          const blurPx = Math.min(6, depth * 1.4);
+          const grayPct = Math.min(60, depth * 10);
+          const yOffset = depth * 2; // slight sag
+          const xJitter = depth * 1;
+
+          const layer = document.createElement('div');
+          layer.className = 'layer';
+          layer.style.zIndex = z;
+          layer.style.transform = `translateY(calc(-50% + ${yOffset}px)) translateX(${xJitter}px)`;
+
+          const img = document.createElement('img');
+          img.className = 'page';
+          img.alt = `page-${i + 1}`;
+          img.src = pages[i];
+          // fit mode sizing
+          if (fitHeight) {
+            img.style.maxHeight = '80vh';
+            img.style.maxWidth = 'unset';
+          } else {
+            img.style.maxWidth = '80vw';
+            img.style.maxHeight = 'unset';
+          }
+          img.style.filter = `blur(${blurPx}px) grayscale(${grayPct}%)`;
+          img.style.opacity = opacity;
+
+          const veil = document.createElement('div');
+          veil.className = 'veil';
+          const edge = document.createElement('div');
+          edge.className = 'edge-shadow';
+
+          layer.appendChild(img);
+          if (depth > 0) layer.appendChild(veil);
+          layer.appendChild(edge);
+          stackRoot.appendChild(layer);
+        }
+
+        // Preload next few
+        for (let k = 1; k <= 3; k++)
+          if (index + k < pages.length) preload(pages[index + k]);
+      }
+
+      // ---------------------------
+      // Events
+      // ---------------------------
+      prevBtn.addEventListener('click', () => {
+        if (index > 0) {
+          index--;
+          render();
+        }
+      });
+      nextBtn.addEventListener('click', () => {
+        if (index < pages.length - 1) {
+          index++;
+          render();
+        }
+      });
+      prevBtn2.addEventListener('click', () => prevBtn.click());
+      nextBtn2.addEventListener('click', () => nextBtn.click());
+
+      fitHeightToggle.addEventListener('change', (e) => {
+        fitHeight = !!e.target.checked;
+        render();
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        const files = e.target.files;
+        if (!files || !files.length) return;
+        setPagesFromFiles(files);
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName))
+          return;
+        if (e.key === 'ArrowRight' || e.key === ' ') {
+          nextBtn.click();
+          e.preventDefault();
+        }
+        if (e.key === 'ArrowLeft') {
+          prevBtn.click();
+          e.preventDefault();
+        }
+        if (e.key.toLowerCase() === 'f') {
+          fitHeightToggle.checked = !fitHeightToggle.checked;
+          fitHeight = fitHeightToggle.checked;
+          render();
+        }
+      });
+
+      window.addEventListener('beforeunload', () => {
+        objectURLs.forEach((url) => URL.revokeObjectURL(url));
+      });
+
+      attachDragAndDrop();
+      render();
+    </script>
+  </body>
+</html>
